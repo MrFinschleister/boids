@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: none;
+            overflow-y: hidden;
+        }
+
+        p {
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10 and IE 11 */
+            user-select: none; /* Standard syntax */
+        }
+    </style>
+</head>
+<body onload="onload()">
+    <p id="score" style="position: absolute; font-size: 20px; margin-left: 2vh; color: grey;">Score: 0</p>
+    <canvas width="500" height="500" id="canvas" style="width: 100vw; height: 100vh; background-color: black;"></canvas>
+
+    <script>
+        class Vector2 {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+
+            static neutral() {
+                return new Vector2(0, 0);
+            }
+            
+            static unitRand() {
+                let angle = Math.random() * Math.PI * 2;
+                
+                return new Vector2(-Math.cos(angle), Math.sin(angle));
+            }
+
+            valueOf() {
+                return this.magnitude();
+            }
+
+            clone() {
+                return new Vector2(this.x, this.y);
+            }
+
+            magnitude() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+
+            add(v2) {
+                this.x += v2.x;
+                this.y += v2.y;
+            }
+
+            difference(v2) {
+                return new Vector2(this.x - v2.x, this.y - v2.y);
+            }
+
+            scale(scalar) {
+                this.x *= scalar;
+                this.y *= scalar;
+            }
+
+            multiply(v2) {
+                this.x *= v2.x;
+                this.y *= v2.y;
+            }
+
+            dotProd(v2) {
+                return this.x * v2.x + this.y * v2.y;
+            }
+
+            average(v2) {
+                return new Vector2((this.x + v2.x) / 2, (this.y * v2.y) / 2);
+            }
+
+            normalise() {
+                let magnitude = this.magnitude();
+
+                if (magnitude == 0) {
+                    this.x = 0;
+                    this.y = 0;
+                } else {
+                    this.x /= magnitude;
+                    this.y /= magnitude;
+                }
+            }
+
+            cap(v2) {
+                if (Math.abs(this.x) > v2.x) {
+                    this.x = v2.x * Math.sign(this.x);
+                }
+
+                if (Math.abs(this.y) > v2.y) {
+                    this.y = v2.y * Math.sign(this.y);
+                }
+            }
+        }
+
+        class Player {
+            constructor(position) {
+                this.position = position.clone();
+                this.velocity = Vector2.neutral();
+
+                this.lastPos = position;
+                this.lastLastPos = position;
+                this.lastLastLastPos = position;
+
+                this.size = 5;
+            }
+
+            screenBound() {
+                if (this.position.x < 0 || this.position.x > canvas.width || this.position.y < 0 || this.position.y > canvas.height) {
+                    reset();
+                }
+            }
+
+            tick() {
+                this.lastLastLastPos = this.lastLastPos.clone();
+                this.lastLastPos = this.lastPos.clone();
+                this.lastPos = this.position.clone()
+
+                this.velocity.multiply(dampening);
+                this.velocity.cap(speedCap);
+                this.position.add(this.velocity);
+
+                this.screenBound();
+            }
+
+            force(force) {
+                this.velocity.add(force);
+            }
+
+            print() {
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = "rgba(160, 140, 60, 1)";
+                ctx.strokeStyle = "rgba(160, 140, 60, 1)";
+
+                let velocity = this.velocity.clone();
+                velocity.normalise();
+
+                let pX = this.position.x;
+                let pY = this.position.y;
+                let vX = velocity.x * this.size;
+                let vY = velocity.y * this.size;
+
+                ctx.beginPath();
+                ctx.moveTo(pX + vX, pY + vY);
+                ctx.lineTo(pX - vX - vY, pY - vY + vX);
+                ctx.lineTo(pX - vX + vY, pY - vY - vX);
+                ctx.lineTo(pX + vX, pY + vY);
+                ctx.stroke();
+                ctx.fill();
+
+                let v1 = this.lastPos;
+                let v2 = this.lastLastPos;
+                let v3 = this.lastLastLastPos;
+
+                ctx.beginPath();
+                ctx.moveTo(pX, pY);
+                ctx.bezierCurveTo(v1.x, v1.y, v2.x, v2.y, v3.x, v3.y);
+                ctx.stroke();
+            }
+        }
+
+        class Organism {
+            constructor(position, velocity, type) {
+                this.position = position;
+                this.velocity = velocity;
+                this.playerForce = Vector2.neutral();
+                this.following = false;
+
+                this.typeIndex = type;
+                this.type = types[type];
+                let keys = Object.keys(this.type)
+
+                for (let i of keys) {
+                    this[i] = this.type[i];
+                }
+            }
+
+            toggleAggro(toggle) {
+                if (toggle && !this.following) {
+                    this.following = true;
+                } else if (!toggle && this.following) {
+                    this.following = false;
+                }
+            }
+
+            tick() {
+                this.boidForces();
+
+                this.velocity.normalise();
+                this.velocity.scale(this.speed);
+                this.velocity.add(this.playerForce);
+                this.position.add(this.velocity);
+
+                this.screenWrap();
+            }
+
+            force(force) {
+                this.velocity.add(force);
+            }
+
+            screenWrap() {
+                let x = this.position.x;
+                let y = this.position.y;
+
+                if (x < 0) {
+                    this.position.x += canvasWidth;
+                } else if (x > canvasWidth) {
+                    this.position.x -= canvasWidth;
+                }
+
+                if (y < 0) {
+                    this.position.y += canvasHeight;
+                } else if (y > canvasHeight) {
+                    this.position.y -= canvasHeight;
+                }
+            }
+
+            print() {
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = this.strokeColor;
+
+                let velocity = this.velocity.clone();
+                velocity.normalise();
+
+                let pX = this.position.x;
+                let pY = this.position.y;
+                let vX = velocity.x * this.size;
+                let vY = velocity.y * this.size;
+
+                let x1 = (pX + vX) << 0;
+                let y1 = (pY + vY) << 0;
+                let x2 = (pX - vX) << 0;
+                let y2 = (pY - vY) << 0;
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2 - vY, y2 + vX);
+                ctx.lineTo(x2 + vY, y2 - vX);
+                ctx.lineTo(x1, y1);
+                ctx.stroke();
+                ctx.fill();
+            }
+
+            boidForces() {
+                let repellingForce = Vector2.neutral();
+                let followingForce = Vector2.neutral();
+                let groupingForce = Vector2.neutral();
+
+                for (let i = 0; i < organisms.length; i++) {
+                    let sel = organisms[i];
+
+                    let relativePosition = this.position.difference(sel.position);
+                    let similarity = relativePosition.dotProd(this.velocity);
+
+                    if (similarity < this.fov) {
+                        continue;
+                    }
+
+                    let magnitude = relativePosition.magnitude();
+
+                    if (magnitude < this.repellingRadius) {
+                        let force = relativePosition.clone();
+
+                        repellingForce.add(force);
+                    }
+
+                    if (magnitude < this.followingRadius) {
+                        let force = sel.velocity.clone();
+
+                        followingForce.add(force);
+                    }
+
+                    if (magnitude < this.groupingRadius) {
+                        let force = relativePosition;
+                        force.scale(-1);
+
+                        groupingForce.add(force);
+                    }
+                }
+
+                repellingForce.normalise();
+                repellingForce.scale(this.repellingWeight);
+                followingForce.normalise();
+                followingForce.scale(this.followingWeight);
+                groupingForce.normalise();
+                groupingForce.scale(this.groupingWeight);
+
+                this.force(repellingForce);
+                this.force(followingForce);
+                this.force(groupingForce);
+            }
+        }
+
+        let types = [
+            {
+                color: "rgb(100, 100, 100)",
+                strokeColor: "rgb(150, 150, 150)",
+                size: 5,
+                speed: 3,
+                fov: -0.5,
+                repellingRadius: 25,
+                repellingWeight: 25,
+                followingRadius: 100,
+                followingWeight: 2,
+                groupingRadius: 150,
+                groupingWeight: 0.5,
+                introspecies: 1,
+                interspecies: -1,
+                temperment: 1,
+                ally: 0,
+                enemy: -2,
+            },
+            {
+                color: "rgb(100, 100, 100)",
+                strokeColor: "rgb(150, 150, 150)",
+                size: 5,
+                speed: 3,
+                fov: -0.5,
+                repellingRadius: 25,
+                repellingWeight: 25,
+                followingRadius: 100,
+                followingWeight: 2,
+                groupingRadius: 150,
+                groupingWeight: 0.5,
+                introspecies: 1,
+                interspecies: -1,
+                temperment: 1,
+                ally: 1,
+                enemy: 0,
+            },
+        ];
+
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+
+        let canvasWidth;
+        let canvasHeight;
+
+        let interval;
+        let player;
+        let mouse;
+
+        let score = 0;
+        let highscore = 0;
+
+        let dangerWeight = 0.05;
+        let speedWeight = 0.1;
+        let timeWeight = 1;
+
+        let organisms = [];
+
+        let playerSpeed = new Vector2(0.9, 0.9);
+        let speedCap = new Vector2(18, 18);
+        let dampening = new Vector2(0.99, 0.99);
+        let gravity = new Vector2(0, -0.25);
+
+        let hitboxPercent = 0.75; 
+
+        function onload() {
+            try {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+
+                canvasWidth = canvas.width;
+                canvasHeight = canvas.height;
+
+                ctx.transform(1, 0, 0, -1, 0, canvasHeight);
+
+                canvas.addEventListener('mousedown', mousedown);
+                canvas.addEventListener('mousemove', mousemove);
+                canvas.addEventListener('mouseup', mouseup);
+
+                addOrganisms();
+                reset();
+
+                interval = setInterval(function() {
+                    tick();
+                }, 16);
+
+            } catch (error) {
+                alert(error.stack);
+            }
+        }
+
+        function mousedown(e) {
+            mouse = new Vector2(e.offsetX, canvasHeight - e.offsetY);
+        }
+
+        function mousemove(e) {
+            if (mouse) {
+                mouse = new Vector2(e.offsetX, canvasHeight - e.offsetY);
+            }
+        }
+
+        function mouseup(e) {
+            mouse = null;
+        }
+
+        function reset() {
+            if (score > highscore) {
+                highscore = score;
+            }
+            
+            score = 0;
+
+            player = new Player(new Vector2(canvasWidth / 2, canvasHeight / 2));
+        }
+
+        function addOrganisms() {
+            let numTypes = [100, 100];
+
+            for (let i = 0; i < numTypes.length; i++) {
+                let num = numTypes[i];
+
+                for (let j = 0; j < num; j++) {
+                    let position = new Vector2(Math.random() * canvasWidth, Math.random() * canvasHeight);
+                    let velocity = Vector2.unitRand();
+
+                    let newOrganism = new Organism(position, velocity, i);
+
+                    organisms.push(newOrganism);
+                }
+            }
+        }
+
+        function tick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+            for (let i of organisms) {
+                if (i.attackPlayer) {
+                    let relativePosition = i.position.difference(player.position);
+
+                    if (relativePosition < i.playerDetectionRadius) {
+                        score += relativePosition * dangerWeight;
+
+                        if (relativePosition < Math.sqrt((i.type.size ** 2) * 2) * hitboxPercent) {
+                            reset();
+                            return;
+                        }
+
+                        if (relativePosition.dotProd(i.velocity) < i.type.fov) {
+                            i.toggleAggro(true);
+
+                            relativePosition.normalise();
+                            relativePosition.scale(i.type.aggro);
+                            i.playerForce = relativePosition;
+                        }
+                    } else {
+                        i.toggleAggro(false);
+                    }
+                }
+
+                i.tick();
+                i.print();
+            }
+
+            player.force(gravity);
+
+            if (mouse) {
+                let difference = mouse.difference(player.position);
+                let distance = difference.magnitude();
+
+                if (distance > 0) {
+                    difference.scale(1 / distance);
+                    difference.multiply(playerSpeed);
+                    player.force(difference);
+                }
+            }
+
+            player.tick();
+            player.print();
+
+            score += player.velocity * speedWeight;
+            score += timeWeight;
+
+            document.getElementById('score').innerHTML = "Score: " + score.toFixed(0) + "</br>High Score: " + highscore.toFixed(0);
+        }
+    </script>
+</body>
+</html>

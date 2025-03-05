@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: none;
+            overflow-y: hidden;
+        }
+    </style>
+</head>
+<body onload="onload()">
+    <p id="score" style="position: absolute; font-size: 25px; padding-left: 3vh; color: white;">Score: 0</p>
+    <canvas id="canvas" style="width: 100vw; height: 100vh; background-color: black;"></canvas>
+
+    <script>
+        class Vector2 {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+
+            static neutral() {
+                return new Vector2(0, 0);
+            }
+
+            static up() {
+                return new Vector2(0, 1);
+            }
+
+            static down() {
+                return new Vector2(0, -1);
+            }
+            
+            static left() {
+                return new Vector2(-1, 0);
+            }
+
+            static right() {
+                return new Vector2(1, 0);
+            }
+
+            clone() {
+                return new Vector2(this.x, this.y);
+            }
+
+            magnitude() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+
+            add(v2) {
+                this.x += v2.x;
+                this.y += v2.y;
+            }
+
+            difference(v2) {
+                return new Vector2(this.x - v2.x, this.y - v2.y);
+            }
+
+            scale(scalar) {
+                this.x *= scalar;
+                this.y *= scalar;
+            }
+
+            multiply(v2) {
+                this.x *= v2.x;
+                this.y *= v2.y;
+            }
+
+            cap(v2) {
+                if (Math.abs(this.x) > v2.x) {
+                    this.x = v2.x * Math.sign(this.x);
+                }
+
+                if (Math.abs(this.y) > v2.y) {
+                    this.y = v2.y * Math.sign(this.y);
+                }
+            }
+        }
+
+        class Player {
+            constructor(position) {
+                this.position = position;
+                this.velocity = Vector2.neutral();
+            }
+
+            force(v2) {
+                this.velocity.add(v2);
+            }
+
+            calculateVelocity() {
+                this.velocity.multiply(dampening);
+                this.velocity.cap(terminalVelocity);
+            }
+
+            detectCollisions() {
+                if (this.position.x < 0 || this.position.x > canvas.width || this.position.y < 0 || this.position.y > canvas.height) {
+                    restart();
+                    return;
+                }
+            }
+
+            tick() {
+                this.lastLastLastPos = this.lastLastPos;
+                this.lastLastPos = this.lastPos;
+                this.lastPos = this.position.clone();
+
+                this.calculateVelocity();
+                this.position.add(this.velocity);
+
+                this.detectCollisions();
+            }
+        }
+
+        class CollisionObject {
+            constructor(position, width, height) {
+                this.position = position;
+                this.width = width;
+                this.height = height;
+            }
+
+            setPath(point1, point2) {
+                this.move = true;
+
+                this.point1 = point1;
+                this.point2 = point2;
+
+                this.movement = point2.difference(point1);
+                this.distance = this.movement.magnitude();
+                this.progress = 0;
+                
+                if (this.distance == 0) {
+                    this.move = false;
+                    return;
+                }
+
+                this.movement.scale(1 / this.distance);
+
+                this.direction = 1;
+            }
+
+            tick() {
+                if (!this.move) {
+                    return;
+                }
+
+                let distance;
+
+                if (this.direction == 1) {
+                    distance = this.point1.difference(this.position);
+                } else {
+                    distance = this.point2.difference(this.position);
+                }
+
+                let distanceNormal = distance.magnitude();
+
+                if (distanceNormal < Math.sqrt((this.width / 2) ** 2 + (this.height / 2) ** 2)) {
+                    this.direction *= -1
+                } else {
+                    distance.scale(1 / distanceNormal);
+
+                    this.force(distance);
+                }
+            }
+
+            force(force) {
+                let force1 = force.clone();
+                force1.multiply(hazardSpeed);
+                this.position.add(force1);
+            }
+        }
+
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+
+        let gameinterval;
+        let mousePosition;
+
+        let objects = [];
+        let score = 0;
+
+        let gravity = new Vector2(0, -0.25);
+        let airResistance = new Vector2(1, 1);
+        let movementScalar = new Vector2(0.7, 0.7);
+        let terminalVelocity = new Vector2(15, 15);
+        let dampening = new Vector2(0.99, 0.99);
+        let playerAttractionForce = new Vector2(1.5, 1,5);
+        let hazardSpeed = new Vector2(1.5, 1.5);
+
+        let player;
+
+        function onload() {
+            try {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+
+                canvas.addEventListener('mousedown', mousedown);
+                canvas.addEventListener('mousemove', mousemove);
+                canvas.addEventListener('mouseup', mouseup);
+
+                ctx.transform(1, 0, 0, -1, 0, canvas.height)
+
+                restart();
+                start();
+            } catch (error) {
+                alert(error.stack);
+            }
+        }
+
+        function restart() {
+            score = 0;
+
+            setPlayer();
+            setObjects();
+        }
+
+        function setPlayer() {
+            player = new Player(new Vector2(canvas.width / 2, canvas.height / 2));
+            player.lastPos = player.position.clone();
+            player.lastLastPos = player.position.clone();
+            player.lastLastLastPos = player.position.clone();
+        }
+
+        function setObjects() {
+            objects = [];
+            let numObjects = 10;
+
+            let step = canvas.width / numObjects;
+
+            /*for (let i = 0; i < numObjects; i++) {
+                let locX = i * step;
+                let locY = (i & 1) * canvas.height;
+                let width = 25;
+                let height = 25;
+
+                let newObject = new CollisionObject(new Vector2(locX, locY), width, height);
+
+                newObject.setPath(newObject.position.clone(), new Vector2(locX, canvas.height - locY));
+
+                objects.push(newObject);
+            }*/
+
+            for (let i = 0; i < numObjects; i++) {
+                let locX = Math.random() * canvas.width;
+                let locY = Math.random() * canvas.height;
+                let width = 25;
+                let height = 25;
+
+                let newObject = new CollisionObject(new Vector2(locX, locY), width, height);
+
+                newObject.setPath(newObject.position.clone(), new Vector2(canvas.width - locX, canvas.height - locY));
+
+                objects.push(newObject);
+            }
+        }
+
+        function mousedown(e) {
+            mousePosition = new Vector2(e.offsetX, canvas.height - e.offsetY);
+        }
+
+        function mousemove(e) {
+            if (mousePosition || e.altKey) {
+                mousePosition = new Vector2(e.offsetX, canvas.height - e.offsetY);
+            }
+        }
+
+        function mouseup(e) {
+            mousePosition = null;
+        }
+
+        function start() {
+            gameinterval = setInterval(function() {
+                tick();
+            }, 16);
+        }
+
+        function tick() {
+            player.force(gravity);
+
+            if (mousePosition) {
+                let distanceVec = mousePosition.difference(player.position);
+
+                let distance = distanceVec.magnitude();
+
+                if (distance > 0) {
+                    distanceVec.scale(1 / distance)
+                    distanceVec.multiply(movementScalar);
+                    player.force(distanceVec);
+                }
+            }
+
+            player.tick();
+
+            for (let i of objects) {
+                let distanceVec = player.position.difference(i.position);
+                let distance = distanceVec.magnitude();
+
+                if (distance < Math.sqrt((i.width / 2) ** 2 + (i.height / 2) ** 2) * 0.75) {
+                    restart();
+                } else {
+                    distanceVec.scale(1 / distance);
+                    distanceVec.multiply(playerAttractionForce);
+                    i.force(distanceVec);
+                }
+
+                i.tick();
+            }
+
+            score += player.velocity.magnitude();
+            document.getElementById('score').innerHTML = "Score: " + score.toFixed(0);
+
+            render();
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+            let pos = player.position;
+
+            ctx.fillStyle = "rgba(130, 120, 40, 1)";
+            ctx.strokeStyle = "rgba(130, 140, 40, 1)";
+            ctx.fillRect(pos.x - 5, pos.y - 5, 10, 10);
+
+            let p1 = player.lastPos;
+            let p2 = player.lastLastPos;
+            let p3 = player.lastLastLastPos;
+
+            ctx.beginPath()
+            ctx.moveTo(pos.x, pos.y);
+            ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+            ctx.stroke();
+
+            ctx.fillStyle = "rgba(130, 40, 40, 1)";
+            for (let i of objects) {
+                ctx.fillRect(i.position.x - i.width / 2, i.position.y - i.height / 2, i.width, i.height);
+            }
+        }
+    </script>
+</body>
+</html>

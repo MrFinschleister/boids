@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: none;
+            overflow-y: hidden;
+        }
+
+        p {
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10 and IE 11 */
+            user-select: none; /* Standard syntax */
+        }
+    </style>
+</head>
+<body onload="onload()">
+    <p id="score" style="position: absolute; font-size: 20px; margin-left: 2vh; color: grey;">Score: 0</p>
+    <canvas width="500" height="500" id="canvas" style="width: 100vw; height: 100vh; background-color: black;"></canvas>
+
+    <script>
+        class Vector2 {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+
+            static neutral() {
+                return new Vector2(0, 0);
+            }
+            
+            static unitRand() {
+                let angle = Math.random() * Math.PI * 2;
+                
+                return new Vector2(-Math.cos(angle), Math.sin(angle));
+            }
+
+            valueOf() {
+                return this.magnitude();
+            }
+
+            clone() {
+                return new Vector2(this.x, this.y);
+            }
+
+            magnitude() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+
+            add(v2) {
+                this.x += v2.x;
+                this.y += v2.y;
+            }
+
+            difference(v2) {
+                return new Vector2(this.x - v2.x, this.y - v2.y);
+            }
+
+            scale(scalar) {
+                this.x *= scalar;
+                this.y *= scalar;
+            }
+
+            multiply(v2) {
+                this.x *= v2.x;
+                this.y *= v2.y;
+            }
+
+            dotProd(v2) {
+                return this.x * v2.x + this.y * v2.y;
+            }
+
+            average(v2) {
+                return new Vector2((this.x + v2.x) / 2, (this.y * v2.y) / 2);
+            }
+
+            normalise() {
+                let magnitude = this.magnitude();
+
+                if (magnitude == 0) {
+                    this.x = 0;
+                    this.y = 0;
+                } else {
+                    this.x /= magnitude;
+                    this.y /= magnitude;
+                }
+            }
+
+            cap(v2) {
+                if (Math.abs(this.x) > v2.x) {
+                    this.x = v2.x * Math.sign(this.x);
+                }
+
+                if (Math.abs(this.y) > v2.y) {
+                    this.y = v2.y * Math.sign(this.y);
+                }
+            }
+        }
+
+        class Player {
+            constructor(position) {
+                this.position = position.clone();
+                this.velocity = Vector2.neutral();
+
+                this.hitbox = Math.sqrt((this.size / 2) ** 2 * 2) * hitboxPercent;
+                this.stunned = 0;
+            }
+
+            setValues(type) {
+                this.typeIndex = type;
+                this.type = types[type];
+                let keys = Object.keys(this.type)
+
+                for (let i of keys) {
+                    this[i] = this.type[i];
+                }
+            }
+
+            screenBound() {
+                let contactX = false;
+                let contactY = false;
+
+                if (this.position.x < 0) {
+                    this.position.x = 0;
+                    contactX = true;
+                } else if (this.position.x > canvasWidth) {
+                    this.position.x = canvasWidth;
+                    contactX = true;
+                }
+                if (this.position.y < 0) {
+                    this.position.y = 0;
+                    contactY = true;
+                } else if (this.position.y > canvasHeight) {
+                    this.position.y = canvasHeight;
+                    contactY = true;
+                }
+
+                if (contactX) {
+                    this.velocity.x *= bounceDampening;
+                }
+                if (contactY) {
+                    this.velocity.y *= bounceDampening;
+                }
+
+                if (contactX || contactY) {
+                    score *= bouncePenalty;
+                }
+            }
+
+            resetTail() {
+                this.lastLastLastPos = this.position;
+                this.lastLastPos = this.position;
+                this.lastPos = this.position;
+            }
+
+            tick() {
+                this.lastLastLastPos = this.lastLastPos.clone();
+                this.lastLastPos = this.lastPos.clone();
+                this.lastPos = this.position.clone()
+
+                this.velocity.multiply(dampening);
+                this.velocity.cap(new Vector2(this.speed, this.speed));
+                this.position.add(this.velocity);
+
+                this.screenBound();
+
+                for (let i of organisms) {
+                    if (i.appearance == this.enemy && this.attack) {
+                        let relativePosition = this.position.difference(i.position);
+                        if (relativePosition < this.hitbox) {
+                            i.stunned = cooldownPeriod;
+
+                            score += killWeight * (i.speed / i.size) / this.speed;
+                        }
+                    }
+                }
+
+                this.stunned = 0;
+            }
+
+            force(force) {
+                this.velocity.add(force);
+            }
+
+            print() {
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = this.strokeColor;
+
+                let velocity = this.velocity.clone();
+                velocity.normalise();
+
+                let pX = this.position.x;
+                let pY = this.position.y;
+                let vX = velocity.x * this.size;
+                let vY = velocity.y * this.size;
+
+                ctx.beginPath();
+                ctx.moveTo(pX + vX, pY + vY);
+                ctx.lineTo(pX - vX - vY, pY - vY + vX);
+                ctx.lineTo(pX - vX + vY, pY - vY - vX);
+                ctx.lineTo(pX + vX, pY + vY);
+                ctx.stroke();
+                ctx.fill();
+
+                ctx.lineWidth = "4";
+
+                let v1 = this.lastPos;
+                let v2 = this.lastLastPos;
+                let v3 = this.lastLastLastPos;
+
+                ctx.beginPath();
+                ctx.moveTo(pX, pY);
+                ctx.bezierCurveTo(v1.x, v1.y, v2.x, v2.y, v3.x, v3.y);
+                ctx.stroke();
+
+                ctx.lineWidth = "1";
+            }
+        }
+
+        class Organism {
+            constructor(position, velocity, type) {
+                this.position = position;
+                this.velocity = velocity;
+                this.playerForce = Vector2.neutral();
+                this.following = false;
+                this.stunned = 0;
+
+                this.typeIndex = type;
+                this.type = types[type];
+                let keys = Object.keys(this.type)
+
+                for (let i of keys) {
+                    this[i] = this.type[i];
+                }
+
+                this.hitbox = Math.sqrt((this.size / 2) ** 2 * 2) * hitboxPercent;
+            }
+
+            tick() {
+                this.boidForces();
+
+                this.velocity.normalise();
+                this.velocity.scale(this.speed);
+                this.position.add(this.velocity);
+
+                this.screenWrap();
+            }
+
+            screenWrap() {
+                let x = this.position.x;
+                let y = this.position.y;
+
+                if (x < 0) {
+                    this.position.x += canvasWidth;
+                } else if (x > canvasWidth) {
+                    this.position.x -= canvasWidth;
+                }
+
+                if (y < 0) {
+                    this.position.y += canvasHeight;
+                } else if (y > canvasHeight) {
+                    this.position.y -= canvasHeight;
+                }
+            }
+
+            print() {
+                ctx.strokeStyle = this.strokeColor;
+
+                let velocity = this.velocity.clone();
+                velocity.normalise();
+
+                let pX = this.position.x;
+                let pY = this.position.y;
+                let vX = velocity.x * this.size;
+                let vY = velocity.y * this.size;
+
+                let x1 = (pX + vX) << 0;
+                let y1 = (pY + vY) << 0;
+                let x2 = (pX - vX) << 0;
+                let y2 = (pY - vY) << 0;
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2 - vY, y2 + vX);
+                ctx.lineTo(x2 + vY, y2 - vX);
+                ctx.lineTo(x1, y1);
+                ctx.stroke();
+            }
+
+            boidForces() {
+                let repellingForce = Vector2.neutral();
+                let followingForce = Vector2.neutral();
+                let groupingForce = Vector2.neutral();
+
+                let position = this.position;
+                let velocity = this.velocity;
+
+                let fov = this.fov;
+                let eyesight = this.eyesight;
+                let familyReaction = this.familyReaction;
+                let allyReaction = this.allyReaction;
+                let enemyReaction = this.enemyReaction;
+                let typeIndex = this.typeIndex;
+                let ally = this.ally;
+                let enemy = this.enemy;
+                let hitbox = this.hitbox;
+                let attack = this.attack;
+                let minimumDistance = this.minimumDistance;
+
+                for (let i = 0; i < organisms.length; i++) {
+                    let sel = organisms[i];
+
+                    let relativePosition = new Vector2(position.x - sel.position.x, position.y - sel.position.y);
+                    let similarity = relativePosition.x * velocity.x + relativePosition.y * velocity.y;
+
+                    let magnitude = Math.sqrt(relativePosition.x * relativePosition.x + relativePosition.y * relativePosition.y);
+
+                    if (similarity < fov || magnitude > eyesight || sel.stunned > 0) {
+                        continue;
+                    }
+
+                    if (sel.terror) {
+                        this.velocity.add(relativePosition);
+                        return;
+                    }
+                      
+                    let selAppearance = sel.appearance;
+
+
+                    let reactionSum = 0;
+
+                    if (typeIndex == selAppearance) {
+                        reactionSum += familyReaction;
+                    }
+                    if (ally == selAppearance) {
+                        reactionSum += allyReaction;
+                    }
+                    if (enemy == selAppearance) {
+                        if (attack && magnitude < hitbox) {
+                            sel.stunned = cooldownPeriod;
+                        }
+
+                        reactionSum += enemyReaction;
+                    }
+
+                    if (magnitude < minimumDistance) {
+                        repellingForce.add(relativePosition);
+
+                        continue;
+                    }
+
+                    let force2 = new Vector2(sel.velocity.x * reactionSum, sel.velocity.y * reactionSum);
+                    followingForce.add(force2);
+
+                    relativePosition.scale(-reactionSum);
+                    groupingForce.add(relativePosition);
+                }
+
+                repellingForce.normalise();
+                repellingForce.scale(this.repellingWeight);
+                followingForce.normalise();
+                followingForce.scale(this.followingWeight);
+                groupingForce.normalise();
+                groupingForce.scale(this.groupingWeight);
+
+                let newForce = repellingForce;
+                newForce.add(followingForce);
+                newForce.add(groupingForce);
+
+                this.velocity.add(newForce);
+            }
+        }
+
+        let types = [
+            {
+                color: "rgba(160, 140, 60, 1)",
+                strokeColor: "rgba(160, 140, 60, 1)",
+                size: 5,
+                speed: 18,
+                fov: -0.5,
+                eyesight: 100,
+                minimumDistance: 0,
+                repellingWeight: 10,
+                followingWeight: 2,
+                groupingWeight: 4,
+                ally: -1,
+                enemy: 5,
+                familyReaction: 0,
+                allyReaction: 0,
+                enemyReaction: 5,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(25, 0, 25)",
+                strokeColor: "rgb(100, 50, 100)",
+                size: 5,
+                speed: 2,
+                fov: -0.5,
+                eyesight: 50,
+                minimumDistance: 25,
+                repellingWeight: 10,
+                followingWeight: 2,
+                groupingWeight: 2,
+                ally: -1,
+                enemy: -1,
+                familyReaction: 2,
+                allyReaction: 1,
+                enemyReaction: 0.5,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(50, 50, 50)",
+                strokeColor: "rgb(150, 150, 150)",
+                size: 5,
+                speed: 2,
+                fov: -0.5,
+                eyesight: 50,
+                minimumDistance: 25,
+                repellingWeight: 10,
+                followingWeight: 2,
+                groupingWeight: 2,
+                ally: -1,
+                enemy: 3,
+                familyReaction: 2,
+                allyReaction: 1,
+                enemyReaction: 0.5,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(50, 0, 0)",
+                strokeColor: "rgb(150, 0, 0)",
+                size: 10,
+                speed: 2,
+                fov: -0.5,
+                eyesight: 200,
+                minimumDistance: 25,
+                repellingWeight: 25,
+                followingWeight: 0,
+                groupingWeight: 5,
+                ally: -1,
+                enemy: 0,
+                familyReaction: -1,
+                allyReaction: 0,
+                enemyReaction: 4,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(75, 0, 50)",
+                strokeColor: "rgb(150, 0, 100)",
+                size: 2,
+                speed: 4,
+                fov: -0.5,
+                eyesight: 150,
+                minimumDistance: 25,
+                repellingWeight: 10,
+                followingWeight: 5,
+                groupingWeight: 5,
+                ally: -1,
+                enemy: -1,
+                familyReaction: 2,
+                allyReaction: 0,
+                enemyReaction: 0.5,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(20, 30, 50)",
+                strokeColor: "rgb(80, 120, 200)",
+                size: 2,
+                speed: 4,
+                fov: -0.5,
+                eyesight: 150,
+                minimumDistance: 25,
+                repellingWeight: 10,
+                followingWeight: 5,
+                groupingWeight: 5,
+                ally: -1,
+                enemy: 1,
+                familyReaction: 1,
+                allyReaction: 0,
+                enemyReaction: 0,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(10, 50, 10)",
+                strokeColor: "rgb(30, 150, 30)",
+                size: 2,
+                speed: 4,
+                fov: -0.5,
+                eyesight: 150,
+                minimumDistance: 25,
+                repellingWeight: 10,
+                followingWeight: 5,
+                groupingWeight: 5,
+                ally: -1,
+                enemy: 2,
+                familyReaction: 1,
+                allyReaction: 0,
+                enemyReaction: 0.15,
+                terror: false,
+                attack: true,
+            },
+            {
+                color: "rgb(50, 50, 12)",
+                strokeColor: "rgb(200, 200, 50)",
+                size: 25,
+                speed: 1,
+                fov: 0.5,
+                eyesight: 150,
+                minimumDistance: 0,
+                repellingWeight: 15,
+                followingWeight: 2,
+                groupingWeight: 4,
+                ally: -1,
+                enemy: -1,
+                familyReaction: 2,
+                allyReaction: 0,
+                enemyReaction: 2,
+                terror: true,
+                attack: true,
+            },
+            {
+                color: "rgb(50, 75, 50)",
+                strokeColor: "rgb(200, 250, 200)",
+                size: 10,
+                speed: 25,
+                fov: 0.5,
+                eyesight: 150,
+                minimumDistance: 0,
+                repellingWeight: 15,
+                followingWeight: 2,
+                groupingWeight: 4,
+                ally: -1,
+                enemy: -1,
+                familyReaction: 0,
+                allyReaction: 0,
+                enemyReaction: 0.15,
+                terror: true,
+                attack: false,
+            },
+        ];
+
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d', { alpha: false,});
+
+        let canvasWidth;
+        let canvasHeight;
+
+        let interval;
+        let player;
+        let mouse;
+
+        let cooldownPeriod = 50;
+        let score = 0;
+        let highscore = 0;
+
+        let killWeight = 4000;
+        let speedWeight = 1;
+        let bouncePenalty = 0.5;
+
+        let organisms = [];
+
+        let playerSpeed = new Vector2(1.1, 1.1);
+        let dampening = new Vector2(0.99, 0.99);
+        let gravity = new Vector2(0, -0.25);
+
+        let hitboxPercent = 0.75; 
+        let bounceDampening = -0.75;
+
+        let numTypes = [0, 100, 100, 10, 200, 200, 200, 0, 0];
+
+        function onload() {
+            try {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+
+                canvasWidth = canvas.width;
+                canvasHeight = canvas.height;
+
+                ctx.transform(1, 0, 0, -1, 0, canvasHeight);
+
+                canvas.addEventListener('mousedown', mousedown);
+                canvas.addEventListener('mousemove', mousemove);
+                canvas.addEventListener('mouseup', mouseup);
+                document.addEventListener('keydown', keydown);
+
+                addOrganisms();
+                reset(true);
+
+                interval = setInterval(function() {
+                    tick();
+                }, 16);
+
+            } catch (error) {
+                alert(error.stack);
+            }
+        }
+
+        function addOrganisms() {
+            for (let i = 0; i < numTypes.length; i++) {
+                let num = numTypes[i];
+                types[i].appearance = i;
+
+                if (types[i].enemy == i) {
+                    types[i].enemy = -1;
+                }
+
+                for (let j = 0; j < num; j++) {
+                    createOrganism(i);
+                }
+            }
+        }
+
+        function createOrganism(i) {
+            let position = new Vector2(Math.random() * canvasWidth, Math.random() * canvasHeight);
+            let velocity = Vector2.unitRand();
+
+            let newOrganism = new Organism(position, velocity, i);
+
+            organisms.push(newOrganism);
+        }
+
+        function reset(first) {
+            if (score > highscore) {
+                highscore = score;
+            }
+            
+            score = 0;
+
+            if (first) {
+                player = new Player(new Vector2(canvasWidth / 2, canvasHeight / 2));
+                player.setValues(0);
+                organisms.push(player);
+            }
+
+            player.position = new Vector2(canvasWidth / 2, canvasHeight / 2);
+            player.velocity.scale(0);
+            player.stunned = 0;
+            player.resetTail();
+        }
+
+        function tick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (player.stunned > 0) {
+                reset();
+            }
+
+            player.force(gravity);
+
+            if (mouse) {
+                let difference = mouse.difference(player.position);
+                let distance = difference.magnitude();
+
+                if (distance > 0) {
+                    difference.scale(1 / distance);
+                    difference.multiply(playerSpeed);
+                    player.force(difference);
+                }
+            }
+            
+            for (let i of organisms) {
+                if (i.stunned <= 0) {
+                    i.tick();
+                }
+                if (i.stunned <= 0 || i.stunned > cooldownPeriod / 2) {
+                    i.print();
+                }
+                i.stunned--;
+            }
+
+            score += player.velocity * speedWeight;
+            document.getElementById('score').innerHTML = "Score: " + score.toFixed(0) + "</br>High Score: " + highscore.toFixed(0);
+        }
+
+
+
+        function mousedown(e) {
+            mouse = new Vector2(e.offsetX, canvasHeight - e.offsetY);
+        }
+
+        function mousemove(e) {
+            if (mouse) {
+                mouse = new Vector2(e.offsetX, canvasHeight - e.offsetY);
+            }
+        }
+
+        function mouseup(e) {
+            mouse = null;
+        }
+
+        function keydown(e) {
+            let keyCode = e.keyCode;
+
+            if (keyCode >= 48 && keyCode <= 57) {
+                keyCode -= 48;
+                player.setValues(keyCode);
+            }
+
+            if (e.code == "Space") {
+                createOrganism(player.typeIndex);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: none;
+            overflow-y: hidden;
+        }
+    </style>
+</head>
+<body onload="onload()">
+    <div id="leftBar" style="position: absolute; left: 2vh;">
+        <p id="score" style="font-size: 20px; left: 2vh; top: 0vh; color: grey;">Score: 0</p>
+        <p id="highscore" style="font-size: 20px; left: 4vh; color: grey;">High Score: 0</p>
+        <p id="switches" style="font-size: 20px; left: 2vh; top: 8vh; color: grey;">Switches Left: 0</p>
+    </div>
+
+    <div id="rightBar" style="position: absolute; right: 2vh;">
+        <p id="numBoids" style="font-size: 20px; right: 2vh; color: grey;">Num Boids: 0</p>
+        <p id="fps" style="font-size: 20px; right: 2vh; color: grey;">FPS: 0</p>
+    </div>
+    <canvas id="canvas" style="width: 100vw; height: 100vh; background-color: black;"></canvas>
+
+    <script src="./classes.js"></script>
+    <script src="./types.js"></script>
+    <script>
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+
+        let interval;
+        let player;
+        let mouse;
+
+        let ticks = 0;
+        let time = 0;
+        let timestamp = performance.now();
+        let tickRate = 16;
+        let delta = 0;
+        let targetTime = tickRate;
+
+        let score = 0;
+        let highscore = 0;
+        let speedScoreWeight = 0.1;
+        let eatScoreWeight = 1000; 
+
+        let switchReplenishRate = tickRate * 50;
+        let switchReplenishAmount = 2;
+
+        let boids = [];
+
+        let gravity = new Vector2(0, -0.25);
+        let mouseForce = new Vector2(1.2, 1.2);
+        let dampening = 0.98;
+        let collisionDampening = -0.75;
+        let hitboxPercent = 1;
+        let boidEatCooldown = 25;
+        let boidMoveCooldown = 25;
+
+        function onload() {
+            try {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+
+                canvas.addEventListener('mousedown', mousedown);
+                canvas.addEventListener('mousemove', mousemove);
+                canvas.addEventListener('mouseup', mouseup);
+                document.addEventListener('keydown', keydown);
+
+                ctx.transform(1, 0, 0, -1, 0, canvas.height)
+
+                reset();
+                start();
+            } catch (error) {
+                alert(error.stack);
+            }
+        }
+
+        function reset() {
+            player = new Player(new Vector2(canvas.width / 2, canvas.height / 2), Vector2.neutral());
+            player.resetTail();
+            player.loadAttributes(0);
+            player.switches = switchReplenishAmount;
+            boids.push(player);
+
+            createBoids();
+        }
+
+        function createBoids() {
+            let numPerType = [0, 100, 15, 100, 2, 100, 150, 150, 0];
+
+            for (let i = 0; i < types.length && i < numPerType.length; i++) {
+                if (!types[i].appearance) {
+                    types[i].appearance = i;
+                }
+
+                for (let j = 0; j < numPerType[i]; j++) {
+                    let position = new Vector2(Math.random() * canvas.width, Math.random() * canvas.height);
+                    let velocity = Vector2.unitRand();
+                    velocity.scale(types[i].speed);
+
+                    let newBoid = new Boid(position, velocity);
+                    newBoid.loadAttributes(i);
+
+                    boids.push(newBoid);
+                }
+            }
+        }
+
+        function start() {
+            interval = setInterval(function() {
+                ticks++;
+                delta = (performance.now() - timestamp) / ticks;
+
+                if (ticks % switchReplenishRate == 0) {
+                    player.switches += switchReplenishAmount;
+                }
+
+                tick();
+            }, tickRate);
+        }
+
+        function mousedown(e) {
+            mouse = new Vector2(e.clientX, canvas.height - e.clientY);
+        }
+
+        function mousemove(e) {
+            if (mouse) {
+                mouse = new Vector2(e.clientX, canvas.height - e.clientY);
+            }
+        }
+
+        function mouseup(e) {
+            mouse = undefined;
+        }
+
+        function keydown(e) {
+            let keycode = e.keyCode;
+
+            if (keycode >= 48 && keycode <= 57) {
+                keycode -= 49;
+
+                if (types[keycode] && player.switches > 0) {
+                    player.switches--;
+                    player.loadAttributes(keycode);
+                }
+            }
+        }
+
+        function tick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (player.moveCooldown > 0) {
+                if (score > highscore) {
+                    highscore = score;
+                }
+
+                score = 0;
+                player.switches = switchReplenishAmount;
+                player.resetTail();
+            }
+
+            for (let i = 0; i < boids.length; i++) {
+                let sel = boids[i];
+
+                if (sel.moveCooldown < 1) {
+                    sel.tick();
+                    sel.move();
+                } else {
+                    sel.moveCooldown--;
+                }
+
+                sel.print();
+            }
+
+            score += player.velocity * speedScoreWeight;
+            document.getElementById('score').innerHTML = "Score: " + score.toFixed(0);
+            document.getElementById('highscore').innerHTML = "High Score: " + highscore.toFixed(0);
+            document.getElementById('switches').innerHTML = "Switches: " + player.switches;
+            document.getElementById('numBoids').innerHTML = "Num Boids: " + boids.length;
+            document.getElementById('fps').innerHTML = "FPS: " + (1000 / delta).toFixed(0);
+        }
+    </script>
+</body>
+</html>
